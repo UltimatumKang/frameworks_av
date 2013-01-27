@@ -66,6 +66,9 @@ public:
     void setFloat(const char *key, float value);
     const char *get(const char *key) const;
     int getInt(const char *key) const;
+#ifdef SAMSUNG_CAMERA_HARDWARE
+    int getInt64(const char *key) const;
+#endif
     float getFloat(const char *key) const;
 
     void remove(const char *key);
@@ -603,6 +606,9 @@ public:
     static const char KEY_MEMORY_COLOR_ENHANCEMENT[];
     static const char KEY_SUPPORTED_MEM_COLOR_ENHANCE_MODES[];
 
+    static const char KEY_POWER_MODE_SUPPORTED[];
+    static const char KEY_POWER_MODE[];
+
     static const char KEY_ZSL[];
     static const char KEY_SUPPORTED_ZSL_MODES[];
 
@@ -628,6 +634,7 @@ public:
     static const char KEY_METERING[];
     static const char KEY_WDR[];
     static const char KEY_WEATHER[];
+    static const char KEY_CITYID[];
 #endif
     static const char KEY_AE_BRACKET_HDR[];
 
@@ -828,6 +835,8 @@ public:
     static const char ISO_400[];
     static const char ISO_800[];
     static const char ISO_1600[];
+    static const char ISO_3200[];
+    static const char ISO_6400[];
     // Values for Lens Shading
     static const char LENSSHADE_ENABLE[] ;
     static const char LENSSHADE_DISABLE[] ;
@@ -880,6 +889,10 @@ public:
     static const char AE_BRACKET_HDR_OFF[];
     static const char AE_BRACKET_HDR[];
     static const char AE_BRACKET[];
+
+    //POWER MODE
+    static const char LOW_POWER[];
+    static const char NORMAL_POWER[];
 
     // Values for HFR settings.
     static const char VIDEO_HFR_OFF[];

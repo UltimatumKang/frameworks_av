@@ -136,8 +136,11 @@ const char CameraParameters::KEY_VIDEO_STABILIZATION_SUPPORTED[] = "video-stabil
 const char CameraParameters::KEY_ZSL[] = "zsl";
 const char CameraParameters::KEY_SUPPORTED_ZSL_MODES[] = "zsl-values";
 const char CameraParameters::KEY_CAMERA_MODE[] = "camera-mode";
+const char CameraParameters::KEY_POWER_MODE[] = "power-mode";
+const char CameraParameters::KEY_POWER_MODE_SUPPORTED[] = "power-mode-supported";
 #endif
 const char CameraParameters::KEY_AE_BRACKET_HDR[] = "ae-bracket-hdr";
+
 /*only effective when KEY_AE_BRACKET_HDR set to ae_bracketing*/
 //const char CameraParameters::KEY_AE_BRACKET_SETTING_KEY[] = "ae-bracket-setting";
 
@@ -151,6 +154,7 @@ const char CameraParameters::KEY_ANTI_SHAKE_MODE[] = "anti-shake";
 const char CameraParameters::KEY_METERING[] = "metering";
 const char CameraParameters::KEY_WDR[] = "wdr";
 const char CameraParameters::KEY_WEATHER[] = "weather";
+const char CameraParameters::KEY_CITYID[] = "contextualtag-cityid";
 #endif
 
 const char CameraParameters::TRUE[] = "true";
@@ -276,6 +280,8 @@ const char CameraParameters::ISO_200[] = "ISO200";
 const char CameraParameters::ISO_400[] = "ISO400";
 const char CameraParameters::ISO_800[] = "ISO800";
 const char CameraParameters::ISO_1600[] = "ISO1600";
+const char CameraParameters::ISO_3200[] = "ISO3200";
+const char CameraParameters::ISO_6400[] = "ISO6400";
 
  //Values for Lens Shading
 const char CameraParameters::LENSSHADE_ENABLE[] = "enable";
@@ -347,6 +353,9 @@ const char CameraParameters::ZSL_ON[] = "on";
 const char CameraParameters::AE_BRACKET_HDR_OFF[] = "Off";
 const char CameraParameters::AE_BRACKET_HDR[] = "HDR";
 const char CameraParameters::AE_BRACKET[] = "AE-Bracket";
+
+const char CameraParameters::LOW_POWER[] = "Low_Power";
+const char CameraParameters::NORMAL_POWER[] = "Normal_Power";
 
 static const char* portrait = "portrait";
 static const char* landscape = "landscape";
@@ -476,6 +485,13 @@ int CameraParameters::getInt(const char *key) const
         return -1;
     return strtol(v, 0, 0);
 }
+
+#ifdef SAMSUNG_CAMERA_HARDWARE
+int CameraParameters::getInt64(const char *key) const
+{
+    return -1;
+}
+#endif
 
 float CameraParameters::getFloat(const char *key) const
 {
