@@ -45,7 +45,7 @@ static bool FileHasAcceptableExtension(const char *extension) {
         ".mkv", ".mka", ".webm", ".ts", ".fl", ".flac", ".mxmf",
         ".avi", ".mpg", ".mpga"
 #ifdef QCOM_HARDWARE
-        , ".qcp", ".awb", ".ac3", ".dts", ".wmv"
+        , ".qcp", ".awb", ".ac3", ".dts", ".wmv", ".ec3"
 #endif
     };
     static const size_t kNumValidExtensions =

@@ -63,6 +63,7 @@
 #ifdef QCOM_HARDWARE
 #include <QCMediaDefs.h>
 #include <QCMetaData.h>
+#include "include/QCUtilityClass.h"
 #endif
 
 namespace android {
@@ -2266,7 +2267,8 @@ status_t MPEG4Source::read(
 
                 return ERROR_IO;
             }
-
+            //for AC3/EAC3 detection
+            QCUtilityClass::helper_mpeg4extractor_checkAC3EAC3(mBuffer, mFormat, size);
             CHECK(mBuffer != NULL);
             mBuffer->set_range(0, size);
             mBuffer->meta_data()->clear();
