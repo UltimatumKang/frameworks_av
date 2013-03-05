@@ -107,6 +107,7 @@
 
 #ifdef QCOM_HARDWARE
 #define DIRECT_TRACK_EOS 1
+#define DIRECT_TRACK_HW_FAIL 6
 static const char lockName[] = "DirectTrack";
 #endif
 
@@ -1051,6 +1052,7 @@ status_t AudioFlinger::setStreamVolume(audio_stream_type_t stream, float value,
             ALOGV("setStreamVolume for mAudioTracks size %d desc %p",mDirectAudioTracks.size(),desc);
             if (desc->mStreamType == stream) {
                 mStreamTypes[stream].volume = value;
+                desc->mVolumeScale = value;
                 desc->stream->set_volume(desc->stream,
                                          desc->mVolumeLeft * mStreamTypes[stream].volume,
                                          desc->mVolumeRight* mStreamTypes[stream].volume);
@@ -1161,9 +1163,29 @@ status_t AudioFlinger::setParameters(audio_io_handle_t ioHandle, const String8& 
             }
             mHardwareStatus = AUDIO_HW_IDLE;
         }
+#ifdef QCOM_HARDWARE
+        AudioParameter param = AudioParameter(keyValuePairs);
+        String8 value, key;
+        int i = 0;
+
+        key = String8(AudioParameter::keyADSPStatus);
+        if (param.get(key, value) == NO_ERROR) {
+            ALOGV("Set keyADSPStatus:%s", value.string());
+            if (value == "ONLINE" || value == "OFFLINE") {
+               if (!mDirectAudioTracks.isEmpty()) {
+                   for (i=0; i < mDirectAudioTracks.size(); i++) {
+                       mDirectAudioTracks.valueAt(i)->stream->common.set_parameters(
+                          &mDirectAudioTracks.valueAt(i)->stream->common, keyValuePairs.string());
+                   }
+               }
+           }
+        }
+#else
         // disable AEC and NS if the device is a BT SCO headset supporting those pre processings
         AudioParameter param = AudioParameter(keyValuePairs);
         String8 value;
+#endif
+
         if (param.get(String8(AUDIO_PARAMETER_KEY_BT_NREC), value) == NO_ERROR) {
             bool btNrecIsOff = (value == AUDIO_PARAMETER_VALUE_OFF);
             if (mBtNrecIsOff != btNrecIsOff) {
@@ -6163,6 +6185,7 @@ AudioFlinger::DirectAudioTrack::DirectAudioTrack(const sp<AudioFlinger>& audioFl
 
         allocateBufPool();
     }
+    outputDesc->mVolumeScale = 1.0;
     mDeathRecipient = new PMDeathRecipient(this);
     acquireWakeLock();
 }
@@ -6247,6 +6270,9 @@ void AudioFlinger::DirectAudioTrack::mute(bool muted) {
 void AudioFlinger::DirectAudioTrack::setVolume(float left, float right) {
     mOutputDesc->mVolumeLeft = left;
     mOutputDesc->mVolumeRight = right;
+    mOutputDesc->stream->set_volume(mOutputDesc->stream,
+                                    left * mOutputDesc->mVolumeScale,
+                                    right* mOutputDesc->mVolumeScale);
 }
 
 int64_t AudioFlinger::DirectAudioTrack::getTimeStamp() {
@@ -6257,8 +6283,18 @@ int64_t AudioFlinger::DirectAudioTrack::getTimeStamp() {
 }
 
 void AudioFlinger::DirectAudioTrack::postEOS(int64_t delayUs) {
+#ifdef QCOM_HARDWARE
+    if (delayUs == 0 ) {
+       ALOGV("Notify Audio Track of EOS event");
+       mClient->notify(DIRECT_TRACK_EOS);
+    } else {
+       ALOGV("Notify Audio Track of hardware failure event");
+       mClient->notify(DIRECT_TRACK_HW_FAIL);
+    }
+#else
     ALOGV("Notify Audio Track of EOS event");
     mClient->notify(DIRECT_TRACK_EOS);
+#endif
 }
 
 void AudioFlinger::DirectAudioTrack::allocateBufPool() {
