@@ -117,6 +117,7 @@ public:
     void setPictureSize(int width, int height);
     void getPictureSize(int *width, int *height) const;
     void getSupportedPictureSizes(Vector<Size> &sizes) const;
+    void set3DFileFormat(const char* buffer);
     void setPictureFormat(const char *format);
     const char *getPictureFormat() const;
 #ifdef QCOM_HARDWARE
@@ -203,6 +204,8 @@ public:
     // Supported dimensions for captured pictures in pixels.
     // Example value: "2048x1536,1024x768". Read only.
     static const char KEY_SUPPORTED_PICTURE_SIZES[];
+    //HTC 3D color format
+    static const char KEY_SUPPORTED_3D_FILE_FORMAT[];
     // The image format for captured pictures. See CAMERA_MSG_COMPRESSED_IMAGE
     // in frameworks/base/include/camera/Camera.h.
     // Example value: "jpeg" or PIXEL_FORMAT_XXX constants. Read/write.
@@ -650,6 +653,42 @@ public:
     static const char KEY_WEATHER[];
     static const char KEY_CITYID[];
 #endif
+
+#ifdef HTC_CAMERA_HARDWARE
+    static const char KEY_TIME_CONS_POST_PROCESSING[];
+    static const char KEY_OIS_MODE[];
+    static const char KEY_APP_OIS_SETTING[];
+    static const char KEY_OIS_SUPPORT[];
+    static const char KEY_CONTIBURST_TYPE[];
+    static const char KEY_CAPTURE_MODE[];
+    static const char CAPTURE_MODE_NORMAL[];
+    static const char CAPTURE_MODE_CONTI_ZOE[];
+    static const char CAPTURE_MODE_CONTI_BURST[];
+    static const char CAPTURE_MODE_CONTI_BURST_ONE_SHOT[];
+    static const char CAPTURE_MODE_HDR[];
+    static const char CAPTURE_MODE_PANORAMA[];
+    static const char CAPTURE_MODE_ZOE[];
+    static const char KEY_CONTI_BURST_STATE[];
+    static const char KEY_SUPPORTED_CAPTURE_MODES[];
+    static const char KEY_MIN_CONTRAST[];
+    static const char KEY_MIN_SHARPNESS[];
+    static const char KEY_MIN_SATURATION[];
+    static const char KEY_SINGLE_ISP_OUTPUT_ENABLED[];
+    static const char POST_PROCESSING_ENABLE[];
+    static const char POST_PROCESSING_BYPASS[];
+    static const char POST_PROCESSING_DELAY[];
+    static const char SCENE_MODE_OFF[];
+    static const char SCENE_MODE_TEXT[];
+    static const char BURST_MODE_LIMIT20[];
+    static const char BURST_MODE_UNLIMITED[];
+    static const char OIS_MODE_OFF[];
+    static const char OIS_MODE_ON[];
+    static const char CONTI_BURST_CAPTURING[];
+    static const char CONTI_BURST_CAPTURE_DONE[];
+    static const char APP_OIS_SETTING_FALSE[];
+    static const char APP_OIS_SETTING_TRUE[];
+#endif
+
     static const char KEY_AE_BRACKET_HDR[];
 
     // Value for KEY_ZOOM_SUPPORTED or KEY_SMOOTH_ZOOM_SUPPORTED.
@@ -915,6 +954,10 @@ public:
     // Values for Face Detection settings.
     static const char FACE_DETECTION_OFF[];
     static const char FACE_DETECTION_ON[];
+
+    // Values for HTC 3D image settings.
+    static const char FILE_FORMAT_MPO[];
+    static const char FILE_FORMAT_JPS[];
 
     // Values for MCE settings.
     static const char MCE_ENABLE[];

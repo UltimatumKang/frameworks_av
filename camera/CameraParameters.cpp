@@ -61,11 +61,16 @@ const char CameraParameters::KEY_MAX_BURST_PICTURE_COUNT[] = "max-burst-picture-
 const char CameraParameters::KEY_SUPPORTED_CONTINUOUS_AF[] = "continuous-af-mode";
 const char CameraParameters::KEY_SUPPORTED_CAF[] = "continuous-af-values";
 const char CameraParameters::KEY_SUPPORTED_CAPTURE_MODES[] = "capture-mode-values";
+const char CameraParameters::KEY_TAKING_PICTURE_ZOOM[] = "taking-picture-zoom";
+const char CameraParameters::KEY_PANORAMA_MODE[] = "panorama-mode";
+const char CameraParameters::PANORAMA_MODE_NOT_INPROGRESS[] = "not-in-progress";
+const char CameraParameters::PANORAMA_MODE_INPROGRESS[] = "in-progress";
 #endif
 #endif
 const char CameraParameters::KEY_PICTURE_SIZE[] = "picture-size";
 const char CameraParameters::KEY_SUPPORTED_PICTURE_SIZES[] = "picture-size-values";
 const char CameraParameters::KEY_PICTURE_FORMAT[] = "picture-format";
+const char CameraParameters::KEY_SUPPORTED_3D_FILE_FORMAT[] = "3d-file-format";
 const char CameraParameters::KEY_SUPPORTED_PICTURE_FORMATS[] = "picture-format-values";
 const char CameraParameters::KEY_JPEG_THUMBNAIL_WIDTH[] = "jpeg-thumbnail-width";
 const char CameraParameters::KEY_JPEG_THUMBNAIL_HEIGHT[] = "jpeg-thumbnail-height";
@@ -181,6 +186,41 @@ const char CameraParameters::KEY_METERING[] = "metering";
 const char CameraParameters::KEY_WDR[] = "wdr";
 const char CameraParameters::KEY_WEATHER[] = "weather";
 const char CameraParameters::KEY_CITYID[] = "contextualtag-cityid";
+#endif
+
+#ifdef HTC_CAMERA_HARDWARE
+const char CameraParameters::KEY_TIME_CONS_POST_PROCESSING[] = "time-cons-post-processing";
+const char CameraParameters::KEY_OIS_MODE[] = "ois_mode";
+const char CameraParameters::KEY_APP_OIS_SETTING[] = "ois-setting";
+const char CameraParameters::KEY_OIS_SUPPORT[] = "ois_support";
+const char CameraParameters::KEY_CONTIBURST_TYPE[] = "contiburst-type";
+const char CameraParameters::KEY_CAPTURE_MODE[] = "capture-mode";
+const char CameraParameters::CAPTURE_MODE_NORMAL[] = "normal";
+const char CameraParameters::CAPTURE_MODE_CONTI_ZOE[] = "contizoe";
+const char CameraParameters::CAPTURE_MODE_CONTI_BURST[] = "contiburst";
+const char CameraParameters::CAPTURE_MODE_CONTI_BURST_ONE_SHOT[] = "fixme";
+const char CameraParameters::CAPTURE_MODE_HDR[] = "hdr";
+const char CameraParameters::CAPTURE_MODE_PANORAMA[] = "panorama";
+const char CameraParameters::CAPTURE_MODE_ZOE[] = "zoe";
+const char CameraParameters::KEY_CONTI_BURST_STATE[] = "contiburst-state";
+const char CameraParameters::KEY_SUPPORTED_CAPTURE_MODES[] = "capture-mode-values";
+const char CameraParameters::KEY_MIN_CONTRAST[] = "contrast-min";
+const char CameraParameters::KEY_MIN_SHARPNESS[] = "sharpness-min";
+const char CameraParameters::KEY_MIN_SATURATION[] = "saturation-min";
+const char CameraParameters::KEY_SINGLE_ISP_OUTPUT_ENABLED[] = "single-isp-output-enabled";
+const char CameraParameters::POST_PROCESSING_ENABLE[] = "enable";
+const char CameraParameters::POST_PROCESSING_BYPASS[] = "bypass";
+const char CameraParameters::POST_PROCESSING_DELAY[] = "delay";
+const char CameraParameters::SCENE_MODE_OFF[] = "off";
+const char CameraParameters::SCENE_MODE_TEXT[] = "text";
+const char CameraParameters::BURST_MODE_LIMIT20[] = "fixme";
+const char CameraParameters::BURST_MODE_UNLIMITED[] = "fixme";
+const char CameraParameters::OIS_MODE_OFF[] = "off";
+const char CameraParameters::OIS_MODE_ON[] = "on";
+const char CameraParameters::CONTI_BURST_CAPTURING[] = "fixme";
+const char CameraParameters::CONTI_BURST_CAPTURE_DONE[] = "fixme";
+const char CameraParameters::APP_OIS_SETTING_FALSE[] = "false";
+const char CameraParameters::APP_OIS_SETTING_TRUE[] = "true";
 #endif
 
 const char CameraParameters::TRUE[] = "true";
@@ -376,6 +416,9 @@ const char CameraParameters::SELECTABLE_ZONE_AF_FRAME_AVERAGE[] = "frame-average
 const char CameraParameters::FACE_DETECTION_OFF[] = "off";
 const char CameraParameters::FACE_DETECTION_ON[] = "on";
 
+const char CameraParameters::FILE_FORMAT_MPO[] = "mpo";
+const char CameraParameters::FILE_FORMAT_JPS[] = "jps";
+
 // Values for MCE settings.
 const char CameraParameters::MCE_ENABLE[] = "enable";
 const char CameraParameters::MCE_DISABLE[] = "disable";
@@ -512,6 +555,9 @@ void CameraParameters::unflatten(const String8 &params)
 
 void CameraParameters::set(const char *key, const char *value)
 {
+    if (key == NULL || value == NULL)
+        return;
+
     // XXX i think i can do this with strspn()
     if (strchr(key, '=') || strchr(key, ';')) {
         //XXX ALOGE("Key \"%s\"contains invalid character (= or ;)", key);
@@ -785,6 +831,11 @@ void CameraParameters::getSupportedPictureSizes(Vector<Size> &sizes) const
 {
     const char *pictureSizesStr = get(KEY_SUPPORTED_PICTURE_SIZES);
     parseSizesList(pictureSizesStr, sizes);
+}
+
+void CameraParameters::set3DFileFormat(const char *format)
+{
+    set(KEY_SUPPORTED_3D_FILE_FORMAT, format);
 }
 
 void CameraParameters::setPictureFormat(const char *format)
