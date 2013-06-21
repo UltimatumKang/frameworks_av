@@ -27,8 +27,6 @@
 #include <binder/IPCThreadState.h>
 #include <binder/IServiceManager.h>
 
-#include <cutils/properties.h>
-
 #include <media/IMediaPlayerService.h>
 #include <media/openmax/OMX_Audio.h>
 #include <media/stagefright/foundation/ADebug.h>
