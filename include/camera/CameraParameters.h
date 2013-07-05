@@ -671,8 +671,11 @@ public:
     static const char KEY_CONTI_BURST_STATE[];
     static const char KEY_SUPPORTED_CAPTURE_MODES[];
     static const char KEY_MIN_CONTRAST[];
+    static const char KEY_DEF_CONTRAST[];
     static const char KEY_MIN_SHARPNESS[];
+    static const char KEY_DEF_SHARPNESS[];
     static const char KEY_MIN_SATURATION[];
+    static const char KEY_DEF_SATURATION[];
     static const char KEY_SINGLE_ISP_OUTPUT_ENABLED[];
     static const char POST_PROCESSING_ENABLE[];
     static const char POST_PROCESSING_BYPASS[];
@@ -692,6 +695,7 @@ public:
     static const char KEY_GPU_EFFECT_PARAM_1[];
     static const char KEY_GPU_EFFECT_PARAM_2[];
     static const char KEY_GPU_EFFECT_PARAM_3[];
+    static const char KEY_FORCE_USE_AUDIO_ENABLED[];
 #endif
 
     static const char KEY_AE_BRACKET_HDR[];
