@@ -265,29 +265,6 @@ uint32_t QCUtilityClass::helper_getCodecSpecificQuirks(KeyedVector<AString, size
         value |= 1ul << bit;
     }
     return value;
-
-}
-
-void QCUtilityClass::helper_mpeg4extractor_checkAC3EAC3(MediaBuffer *buffer,
-                                                        sp<MetaData> &format,
-                                                        size_t size) {
-    bool mMakeBigEndian = false;
-    const char *mime;
-
-    if (format->findCString(kKeyMIMEType, &mime)
-            && (!strcasecmp(mime, MEDIA_MIMETYPE_AUDIO_AC3) ||
-            !strcasecmp(mime, MEDIA_MIMETYPE_AUDIO_EAC3))) {
-        mMakeBigEndian = true;
-    }
-    if (mMakeBigEndian && *((uint8_t *)buffer->data())==0x0b &&
-            *((uint8_t *)buffer->data()+1)==0x77 ) {
-        size_t count = 0;
-        for(count=0;count<size;count+=2) { // size is always even bytes in ac3/ec3 read
-            uint8_t tmp = *((uint8_t *)buffer->data() + count);
-            *((uint8_t *)buffer->data() + count) = *((uint8_t *)buffer->data()+count+1);
-            *((uint8_t *)buffer->data() + count+1) = tmp;
-        }
-    }
 }
 
 //- returns NULL if we dont really need a new extractor (or cannot),

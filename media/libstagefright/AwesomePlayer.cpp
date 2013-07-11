@@ -3123,8 +3123,6 @@ bool AwesomePlayer::inSupportedTunnelFormats(const char * mime) {
     const char * tunnelFormats [ ] = {
         MEDIA_MIMETYPE_AUDIO_MPEG,
         MEDIA_MIMETYPE_AUDIO_AAC,
-        MEDIA_MIMETYPE_AUDIO_AC3,
-        MEDIA_MIMETYPE_AUDIO_EAC3,
 #ifdef TUNNEL_MODE_SUPPORTS_AMRWB
         MEDIA_MIMETYPE_AUDIO_AMR_WB,
         MEDIA_MIMETYPE_AUDIO_AMR_WB_PLUS

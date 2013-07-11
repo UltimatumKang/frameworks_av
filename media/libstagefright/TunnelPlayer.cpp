@@ -40,7 +40,7 @@
 #include <media/stagefright/MediaSource.h>
 #include <media/stagefright/MetaData.h>
 #include <media/stagefright/MediaErrors.h>
-#include <QCMediaDefs.h>
+
 #include <hardware_legacy/power.h>
 
 #include <linux/unistd.h>
@@ -353,6 +353,7 @@ status_t TunnelPlayer::start(bool sourceAlreadyStarted) {
     } else {
         ALOGE("TunnelPlayer::UNSUPPORTED");
     }
+
 
     CHECK(success);
 
