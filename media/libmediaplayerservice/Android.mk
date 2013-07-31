@@ -9,6 +9,7 @@ include $(CLEAR_VARS)
 LOCAL_SRC_FILES:=               \
     ActivityManager.cpp         \
     Crypto.cpp                  \
+    Drm.cpp                     \
     HDCP.cpp                    \
     MediaPlayerFactory.cpp      \
     MediaPlayerService.cpp      \
@@ -17,6 +18,7 @@ LOCAL_SRC_FILES:=               \
     MidiFile.cpp                \
     MidiMetadataRetriever.cpp   \
     RemoteDisplay.cpp           \
+    SharedLibrary.cpp           \
     StagefrightPlayer.cpp       \
     StagefrightRecorder.cpp     \
     TestPlayerStub.cpp          \
@@ -25,10 +27,10 @@ LOCAL_SHARED_LIBRARIES :=       \
     libbinder                   \
     libcamera_client            \
     libcutils                   \
+    liblog                      \
     libdl                       \
     libgui                      \
     libmedia                    \
-    libmedia_native             \
     libsonivox                  \
     libstagefright              \
     libstagefright_foundation   \

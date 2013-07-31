@@ -768,8 +768,18 @@ status_t OMXCodec::configureCodec(const sp<MetaData> &meta) {
         status_t err = setWMAFormat(meta);
         if(err!=OK){
            return err;
-        }
 #endif
+    } else if (!strcasecmp(MEDIA_MIMETYPE_AUDIO_MPEG, mMIME)) {
+        int32_t numChannels, sampleRate;
+        if (meta->findInt32(kKeyChannelCount, &numChannels)
+                && meta->findInt32(kKeySampleRate, &sampleRate)) {
+            // Since we did not always check for these, leave them optional
+            // and have the decoder figure it all out.
+            setRawAudioFormat(
+                    mIsEncoder ? kPortIndexInput : kPortIndexOutput,
+                    sampleRate,
+                    numChannels);
+        }
     } else if (!strcasecmp(MEDIA_MIMETYPE_AUDIO_G711_ALAW, mMIME)
             || !strcasecmp(MEDIA_MIMETYPE_AUDIO_G711_MLAW, mMIME)) {
         // These are PCM-like formats with a fixed sample rate but
@@ -1795,8 +1805,9 @@ void OMXCodec::setComponentRole(
         { MEDIA_MIMETYPE_VIDEO_DIVX311,
             "video_decoder.divx", NULL },
 #endif
+        { MEDIA_MIMETYPE_AUDIO_MSGSM,
+            "audio_decoder.gsm", "audio_encoder.gsm" },
     };
-
     static const size_t kNumMimeToRole =
         sizeof(kMimeToRole) / sizeof(kMimeToRole[0]);
 

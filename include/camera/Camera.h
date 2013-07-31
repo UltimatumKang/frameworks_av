@@ -18,11 +18,14 @@
 #define ANDROID_HARDWARE_CAMERA_H
 
 #include <utils/Timers.h>
-#include <gui/ISurfaceTexture.h>
+#include <gui/IGraphicBufferProducer.h>
 #include <system/camera.h>
 #include <camera/ICameraClient.h>
 #include <camera/ICameraRecordingProxy.h>
 #include <camera/ICameraRecordingProxyListener.h>
+#include <camera/ICameraService.h>
+#include <camera/ICamera.h>
+#include <camera/CameraBase.h>
 
 namespace android {
 
@@ -54,8 +57,8 @@ struct CameraInfo {
 class ICameraService;
 class ICamera;
 class Surface;
-class Mutex;
 class String8;
+class String16;
 
 // ref-counted object for callbacks
 class CameraListener: virtual public RefBase
@@ -67,30 +70,39 @@ public:
     virtual void postDataTimestamp(nsecs_t timestamp, int32_t msgType, const sp<IMemory>& dataPtr) = 0;
 };
 
-class Camera : public BnCameraClient, public IBinder::DeathRecipient
+class Camera;
+
+template <>
+struct CameraTraits<Camera>
+{
+    typedef CameraListener        TCamListener;
+    typedef ICamera               TCamUser;
+    typedef ICameraClient         TCamCallbacks;
+};
+
+class Camera :
+    public CameraBase<Camera>,
+    public BnCameraClient
 {
 public:
+    enum {
+        USE_CALLING_UID = ICameraService::USE_CALLING_UID
+    };
+
             // construct a camera client from an existing remote
     static  sp<Camera>  create(const sp<ICamera>& camera);
-    static  int32_t     getNumberOfCameras();
-    static  status_t    getCameraInfo(int cameraId,
-                                      struct CameraInfo* cameraInfo);
-    static  sp<Camera>  connect(int cameraId);
+    static  sp<Camera>  connect(int cameraId,
+                                const String16& clientPackageName,
+                                int clientUid);
+
             virtual     ~Camera();
-            void        init();
 
             status_t    reconnect();
-            void        disconnect();
             status_t    lock();
             status_t    unlock();
 
-            status_t    getStatus() { return mStatus; }
-
-            // pass the buffered Surface to the camera service
-            status_t    setPreviewDisplay(const sp<Surface>& surface);
-
-            // pass the buffered ISurfaceTexture to the camera service
-            status_t    setPreviewTexture(const sp<ISurfaceTexture>& surfaceTexture);
+            // pass the buffered IGraphicBufferProducer to the camera service
+            status_t    setPreviewTexture(const sp<IGraphicBufferProducer>& bufferProducer);
 
             // start preview mode, must call setPreviewDisplay first
             status_t    startPreview();
@@ -146,8 +158,6 @@ public:
                                      camera_frame_metadata_t *metadata);
     virtual void        dataCallbackTimestamp(nsecs_t timestamp, int32_t msgType, const sp<IMemory>& dataPtr);
 
-    sp<ICamera>         remote();
-
     class RecordingProxy : public BnCameraRecordingProxy
     {
     public:
@@ -162,36 +172,14 @@ public:
         sp<Camera>         mCamera;
     };
 
-private:
-                        Camera();
+protected:
+                        Camera(int cameraId);
                         Camera(const Camera&);
                         Camera& operator=(const Camera);
-                        virtual void binderDied(const wp<IBinder>& who);
 
-            class DeathNotifier: public IBinder::DeathRecipient
-            {
-            public:
-                DeathNotifier() {
-                }
+    sp<ICameraRecordingProxyListener>  mRecordingProxyListener;
 
-                virtual void binderDied(const wp<IBinder>& who);
-            };
-
-            static sp<DeathNotifier> mDeathNotifier;
-
-            // helper function to obtain camera service handle
-            static const sp<ICameraService>& getCameraService();
-
-            sp<ICamera>         mCamera;
-            status_t            mStatus;
-
-            sp<CameraListener>  mListener;
-            sp<ICameraRecordingProxyListener>  mRecordingProxyListener;
-
-            friend class DeathNotifier;
-
-            static  Mutex               mLock;
-            static  sp<ICameraService>  mCameraService;
+    friend class        CameraBase;
 };
 
 }; // namespace android

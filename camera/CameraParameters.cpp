@@ -232,6 +232,8 @@ const char CameraParameters::KEY_GPU_EFFECT_PARAM_3[] = "GE-param3";
 const char CameraParameters::KEY_FORCE_USE_AUDIO_ENABLED[] = "forceuseaudio";
 #endif
 
+const char CameraParameters::KEY_LIGHTFX[] = "light-fx";
+
 const char CameraParameters::TRUE[] = "true";
 const char CameraParameters::FALSE[] = "false";
 const char CameraParameters::FOCUS_DISTANCE_INFINITY[] = "Infinity";
@@ -499,6 +501,10 @@ void CameraParameters::setOrientation(int orientation)
 }
 #endif
 
+
+// Values for light fx settings
+const char CameraParameters::LIGHTFX_LOWLIGHT[] = "low-light";
+const char CameraParameters::LIGHTFX_HDR[] = "high-dynamic-range";
 
 CameraParameters::CameraParameters()
                 : mMap()

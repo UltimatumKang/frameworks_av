@@ -42,7 +42,7 @@
 #include <binder/IServiceManager.h>
 #include <binder/MemoryHeapBase.h>
 #include <binder/MemoryBase.h>
-#include <gui/SurfaceTextureClient.h>
+#include <gui/Surface.h>
 #include <utils/Errors.h>  // for status_t
 #include <utils/String8.h>
 #include <utils/SystemClock.h>
@@ -76,7 +76,9 @@
 #include <OMX.h>
 
 #include "Crypto.h"
+#include "Drm.h"
 #include "HDCP.h"
+#include "HTTPBase.h"
 #include "RemoteDisplay.h"
 #define DEFAULT_SAMPLE_RATE 44100
 
@@ -229,8 +231,9 @@ MediaPlayerService::~MediaPlayerService()
     ALOGV("MediaPlayerService destroyed");
 }
 
-sp<IMediaRecorder> MediaPlayerService::createMediaRecorder(pid_t pid)
+sp<IMediaRecorder> MediaPlayerService::createMediaRecorder()
 {
+    pid_t pid = IPCThreadState::self()->getCallingPid();
     sp<MediaRecorderClient> recorder = new MediaRecorderClient(this, pid);
     wp<MediaRecorderClient> w = recorder;
     Mutex::Autolock lock(mLock);
@@ -246,16 +249,18 @@ void MediaPlayerService::removeMediaRecorderClient(wp<MediaRecorderClient> clien
     ALOGV("Delete media recorder client");
 }
 
-sp<IMediaMetadataRetriever> MediaPlayerService::createMetadataRetriever(pid_t pid)
+sp<IMediaMetadataRetriever> MediaPlayerService::createMetadataRetriever()
 {
+    pid_t pid = IPCThreadState::self()->getCallingPid();
     sp<MetadataRetrieverClient> retriever = new MetadataRetrieverClient(pid);
     ALOGV("Create new media retriever from pid %d", pid);
     return retriever;
 }
 
-sp<IMediaPlayer> MediaPlayerService::create(pid_t pid, const sp<IMediaPlayerClient>& client,
+sp<IMediaPlayer> MediaPlayerService::create(const sp<IMediaPlayerClient>& client,
         int audioSessionId)
 {
+    pid_t pid = IPCThreadState::self()->getCallingPid();
     int32_t connId = android_atomic_inc(&mNextConnId);
 
     sp<Client> c = new Client(
@@ -287,8 +292,12 @@ sp<ICrypto> MediaPlayerService::makeCrypto() {
     return new Crypto;
 }
 
-sp<IHDCP> MediaPlayerService::makeHDCP() {
-    return new HDCP;
+sp<IDrm> MediaPlayerService::makeDrm() {
+    return new Drm;
+}
+
+sp<IHDCP> MediaPlayerService::makeHDCP(bool createEncryptionModule) {
+    return new HDCP(createEncryptionModule);
 }
 
 sp<IRemoteDisplay> MediaPlayerService::listenForRemoteDisplay(
@@ -298,6 +307,11 @@ sp<IRemoteDisplay> MediaPlayerService::listenForRemoteDisplay(
     }
 
     return new RemoteDisplay(client, iface.string());
+}
+
+status_t MediaPlayerService::updateProxyConfig(
+        const char *host, int32_t port, const char *exclusionList) {
+    return HTTPBase::UpdateProxyConfig(host, port, exclusionList);
 }
 
 status_t MediaPlayerService::AudioCache::dump(int fd, const Vector<String16>& args) const
@@ -719,21 +733,21 @@ void MediaPlayerService::Client::disconnectNativeWindow() {
 }
 
 status_t MediaPlayerService::Client::setVideoSurfaceTexture(
-        const sp<ISurfaceTexture>& surfaceTexture)
+        const sp<IGraphicBufferProducer>& bufferProducer)
 {
-    ALOGV("[%d] setVideoSurfaceTexture(%p)", mConnId, surfaceTexture.get());
+    ALOGV("[%d] setVideoSurfaceTexture(%p)", mConnId, bufferProducer.get());
     sp<MediaPlayerBase> p = getPlayer();
     if (p == 0) return UNKNOWN_ERROR;
 
-    sp<IBinder> binder(surfaceTexture == NULL ? NULL :
-            surfaceTexture->asBinder());
+    sp<IBinder> binder(bufferProducer == NULL ? NULL :
+            bufferProducer->asBinder());
     if (mConnectedWindowBinder == binder) {
         return OK;
     }
 
     sp<ANativeWindow> anw;
-    if (surfaceTexture != NULL) {
-        anw = new SurfaceTextureClient(surfaceTexture);
+    if (bufferProducer != NULL) {
+        anw = new Surface(bufferProducer);
         status_t err = native_window_api_connect(anw.get(),
                 NATIVE_WINDOW_API_MEDIA);
 
@@ -750,10 +764,10 @@ status_t MediaPlayerService::Client::setVideoSurfaceTexture(
         }
     }
 
-    // Note that we must set the player's new SurfaceTexture before
+    // Note that we must set the player's new GraphicBufferProducer before
     // disconnecting the old one.  Otherwise queue/dequeue calls could be made
     // on the disconnected ANW, which may result in errors.
-    status_t err = p->setVideoSurfaceTexture(surfaceTexture);
+    status_t err = p->setVideoSurfaceTexture(bufferProducer);
 
     disconnectNativeWindow();
 
@@ -1474,8 +1488,8 @@ status_t MediaPlayerService::AudioOutput::open(
     }
     ALOGV("open(%u, %d, 0x%x, %d, %d, %d)", sampleRate, channelCount, channelMask,
             format, bufferCount, mSessionId);
-    int afSampleRate;
-    int afFrameCount;
+    uint32_t afSampleRate;
+    size_t afFrameCount;
     uint32_t frameCount;
 
     if (AudioSystem::getOutputFrameCount(&afFrameCount, mStreamType) != NO_ERROR) {

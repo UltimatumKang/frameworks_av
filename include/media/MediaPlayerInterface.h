@@ -40,7 +40,7 @@ namespace android {
 
 class Parcel;
 class Surface;
-class ISurfaceTexture;
+class IGraphicBufferProducer;
 
 template<typename T> class SortedVector;
 
@@ -142,9 +142,9 @@ public:
         return INVALID_OPERATION;
     }
 
-    // pass the buffered ISurfaceTexture to the media player service
+    // pass the buffered IGraphicBufferProducer to the media player service
     virtual status_t    setVideoSurfaceTexture(
-                                const sp<ISurfaceTexture>& surfaceTexture) = 0;
+                                const sp<IGraphicBufferProducer>& bufferProducer) = 0;
 
     virtual status_t    prepare() = 0;
     virtual status_t    prepareAsync() = 0;
@@ -206,6 +206,11 @@ public:
     }
 
     virtual status_t dump(int fd, const Vector<String16> &args) const {
+        return INVALID_OPERATION;
+    }
+
+    virtual status_t updateProxyConfig(
+            const char *host, int32_t port, const char *exclusionList) {
         return INVALID_OPERATION;
     }
 

@@ -88,7 +88,8 @@ StagefrightRecorder::StagefrightRecorder()
       mOutputFd(-1),
       mAudioSource(AUDIO_SOURCE_CNT),
       mVideoSource(VIDEO_SOURCE_LIST_END),
-      mStarted(false), mSurfaceMediaSource(NULL) {
+      mStarted(false), mSurfaceMediaSource(NULL),
+      mCaptureTimeLapse(false) {
 
     ALOGV("Constructor");
     reset();
@@ -107,7 +108,7 @@ status_t StagefrightRecorder::init() {
 // The client side of mediaserver asks it to creat a SurfaceMediaSource
 // and return a interface reference. The client side will use that
 // while encoding GL Frames
-sp<ISurfaceTexture> StagefrightRecorder::querySurfaceMediaSource() const {
+sp<IGraphicBufferProducer> StagefrightRecorder::querySurfaceMediaSource() const {
     ALOGV("Get SurfaceMediaSource");
     return mSurfaceMediaSource->getBufferQueue();
 }
@@ -274,7 +275,7 @@ status_t StagefrightRecorder::setCamera(const sp<ICamera> &camera,
     return OK;
 }
 
-status_t StagefrightRecorder::setPreviewSurface(const sp<Surface> &surface) {
+status_t StagefrightRecorder::setPreviewSurface(const sp<IGraphicBufferProducer> &surface) {
     ALOGV("setPreviewSurface: %p", surface.get());
     mPreviewSurface = surface;
 
@@ -785,6 +786,12 @@ status_t StagefrightRecorder::setListener(const sp<IMediaRecorderClient> &listen
     return OK;
 }
 
+status_t StagefrightRecorder::setClientName(const String16& clientName) {
+    mClientName = clientName;
+
+    return OK;
+}
+
 status_t StagefrightRecorder::prepare() {
   ALOGV(" %s E", __func__ );
 
@@ -803,6 +810,8 @@ status_t StagefrightRecorder::prepare() {
 status_t StagefrightRecorder::start() {
     CHECK_GE(mOutputFd, 0);
 
+    // Get UID here for permission checking
+    mClientUid = IPCThreadState::self()->getCallingUid();
     if (mWriter != NULL) {
         ALOGE("File writer is not avaialble");
         return UNKNOWN_ERROR;
@@ -1512,7 +1521,7 @@ status_t StagefrightRecorder::setupCameraSource(
         }
 
         mCameraSourceTimeLapse = CameraSourceTimeLapse::CreateFromCamera(
-                mCamera, mCameraProxy, mCameraId,
+                mCamera, mCameraProxy, mCameraId, mClientName, mClientUid,
                 videoSize, mFrameRate, mPreviewSurface,
                 mTimeBetweenTimeLapseFrameCaptureUs);
         *cameraSource = mCameraSourceTimeLapse;
@@ -1526,8 +1535,9 @@ status_t StagefrightRecorder::setupCameraSource(
         }
 #endif
         *cameraSource = CameraSource::CreateFromCamera(
-                mCamera, mCameraProxy, mCameraId, videoSize, mFrameRate,
-                mPreviewSurface, useMeta /*storeMetaDataInVideoBuffers*/);
+                mCamera, mCameraProxy, mCameraId, mClientName, mClientUid,
+                videoSize, mFrameRate,
+                mPreviewSurface, true /*storeMetaDataInVideoBuffers*/);
     }
     mCamera.clear();
     mCameraProxy.clear();

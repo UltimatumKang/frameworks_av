@@ -699,6 +699,9 @@ public:
 #endif
 
     static const char KEY_AE_BRACKET_HDR[];
+    // Supported modes for special effects with light.
+    // Example values: "lowlight,hdr".
+    static const char KEY_LIGHTFX[];
 
     // Value for KEY_ZOOM_SUPPORTED or KEY_SMOOTH_ZOOM_SUPPORTED.
     static const char TRUE[];
@@ -1040,6 +1043,11 @@ public:
 #endif
     void getSupportedHfrSizes(Vector<Size> &sizes) const;
 #endif
+    // Values for light special effects
+    // Low-light enhancement mode
+    static const char LIGHTFX_LOWLIGHT[];
+    // High-dynamic range mode
+    static const char LIGHTFX_HDR[];
 
 private:
     DefaultKeyedVector<String8,String8>    mMap;

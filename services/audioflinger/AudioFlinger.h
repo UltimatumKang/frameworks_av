@@ -62,6 +62,8 @@
 #include <powermanager/IPowerManager.h>
 #include <utils/List.h>
 
+#include <media/nbaio/NBLog.h>
+
 namespace android {
 
 class audio_track_cblk_t;
@@ -70,6 +72,7 @@ class AudioMixer;
 class AudioBuffer;
 class AudioResampler;
 class FastMixer;
+class ServerProxy;
 
 // ----------------------------------------------------------------------------
 
@@ -84,6 +87,11 @@ class FastMixer;
 
 static const nsecs_t kDefaultStandbyTimeInNsecs = seconds(3);
 
+#define MAX_GAIN 4096.0f
+#define MAX_GAIN_INT 0x1000
+
+#define INCLUDING_FROM_AUDIOFLINGER_H
+
 class AudioFlinger :
     public BinderService<AudioFlinger>,
     public BnAudioFlinger
@@ -96,13 +104,12 @@ public:
 
     // IAudioFlinger interface, in binder opcode order
     virtual sp<IAudioTrack> createTrack(
-                                pid_t pid,
                                 audio_stream_type_t streamType,
                                 uint32_t sampleRate,
                                 audio_format_t format,
                                 audio_channel_mask_t channelMask,
-                                int frameCount,
-                                IAudioFlinger::track_flags_t flags,
+                                size_t frameCount,
+                                IAudioFlinger::track_flags_t *flags,
                                 const sp<IMemory>& sharedBuffer,
                                 audio_io_handle_t output,
                                 pid_t tid,
@@ -123,12 +130,11 @@ public:
 #endif
 
     virtual sp<IAudioRecord> openRecord(
-                                pid_t pid,
                                 audio_io_handle_t input,
                                 uint32_t sampleRate,
                                 audio_format_t format,
                                 audio_channel_mask_t channelMask,
-                                int frameCount,
+                                size_t frameCount,
                                 IAudioFlinger::track_flags_t flags,
                                 pid_t tid,
                                 int *sessionId,
@@ -198,7 +204,7 @@ public:
 
     virtual status_t setVoiceVolume(float volume);
 
-    virtual status_t getRenderPosition(uint32_t *halFrames, uint32_t *dspFrames,
+    virtual status_t getRenderPosition(size_t *halFrames, size_t *dspFrames,
                                        audio_io_handle_t output) const;
 
     virtual     unsigned int  getInputFramesLost(audio_io_handle_t ioHandle) const;
@@ -216,7 +222,7 @@ public:
     virtual status_t getEffectDescriptor(const effect_uuid_t *pUuid,
                                          effect_descriptor_t *descriptor) const;
 
-    virtual sp<IEffect> createEffect(pid_t pid,
+    virtual sp<IEffect> createEffect(
                         effect_descriptor_t *pDesc,
                         const sp<IEffectClient>& effectClient,
                         int32_t priority,
@@ -235,8 +241,8 @@ public:
 
     virtual audio_module_handle_t loadHwModule(const char *name);
 
-    virtual int32_t getPrimaryOutputSamplingRate();
-    virtual int32_t getPrimaryOutputFrameCount();
+    virtual uint32_t getPrimaryOutputSamplingRate();
+    virtual size_t getPrimaryOutputFrameCount();
 
     virtual     status_t    onTransact(
                                 uint32_t code,
@@ -253,6 +259,13 @@ public:
 #endif
 
     // end of IAudioFlinger interface
+
+    sp<NBLog::Writer>   newWriter_l(size_t size, const char *name);
+    void                unregisterWriter(const sp<NBLog::Writer>& writer);
+private:
+    static const size_t kLogMemorySize = 10 * 1024;
+    sp<MemoryDealer>    mLogMemoryDealer;   // == 0 when NBLog is disabled
+public:
 
     class SyncEvent;
 
@@ -305,19 +318,28 @@ private:
     virtual                 ~AudioFlinger();
 
     // call in any IAudioFlinger method that accesses mPrimaryHardwareDev
-    status_t                initCheck() const { return mPrimaryHardwareDev == NULL ? NO_INIT : NO_ERROR; }
+    status_t                initCheck() const { return mPrimaryHardwareDev == NULL ?
+                                                        NO_INIT : NO_ERROR; }
 
     // RefBase
     virtual     void        onFirstRef();
 
-    AudioHwDevice*          findSuitableHwDev_l(audio_module_handle_t module, audio_devices_t devices);
+    AudioHwDevice*          findSuitableHwDev_l(audio_module_handle_t module,
+                                                audio_devices_t devices);
     void                    purgeStaleEffects_l();
 
     // standby delay for MIXER and DUPLICATING playback threads is read from property
     // ro.audio.flinger_standbytime_ms or defaults to kDefaultStandbyTimeInNsecs
     static nsecs_t          mStandbyTimeInNsecs;
 
+    // incremented by 2 when screen state changes, bit 0 == 1 means "off"
+    // AudioFlinger::setParameters() updates, other threads read w/o lock
+    static uint32_t         mScreenState;
+
     // Internal dump utilities.
+    static const int kDumpLockRetries = 50;
+    static const int kDumpLockSleepUs = 20000;
+    static bool dumpTryLock(Mutex& mutex);
     void dumpPermissionDenial(int fd, const Vector<String16>& args);
     void dumpClients(int fd, const Vector<String16>& args);
     void dumpInternals(int fd, const Vector<String16>& args);
@@ -808,644 +830,10 @@ private:
     };
 
     // --- PlaybackThread ---
-    class PlaybackThread : public ThreadBase {
-    public:
 
-        enum mixer_state {
-            MIXER_IDLE,             // no active tracks
-            MIXER_TRACKS_ENABLED,   // at least one active track, but no track has any data ready
-            MIXER_TRACKS_READY      // at least one active track, and at least one track has data
-            // standby mode does not have an enum value
-            // suspend by audio policy manager is orthogonal to mixer state
-        };
+#include "Threads.h"
 
-        // playback track
-        class Track : public TrackBase, public VolumeProvider {
-        public:
-                                Track(  PlaybackThread *thread,
-                                        const sp<Client>& client,
-                                        audio_stream_type_t streamType,
-                                        uint32_t sampleRate,
-                                        audio_format_t format,
-                                        audio_channel_mask_t channelMask,
-                                        int frameCount,
-                                        const sp<IMemory>& sharedBuffer,
-                                        int sessionId,
-                                        IAudioFlinger::track_flags_t flags);
-            virtual             ~Track();
-
-            static  void        appendDumpHeader(String8& result);
-                    void        dump(char* buffer, size_t size);
-            virtual status_t    start(AudioSystem::sync_event_t event = AudioSystem::SYNC_EVENT_NONE,
-                                     int triggerSession = 0);
-            virtual void        stop();
-                    void        pause();
-
-                    void        flush();
-                    void        destroy();
-                    void        mute(bool);
-                    int         name() const { return mName; }
-
-                    audio_stream_type_t streamType() const {
-                        return mStreamType;
-                    }
-                    status_t    attachAuxEffect(int EffectId);
-                    void        setAuxBuffer(int EffectId, int32_t *buffer);
-                    int32_t     *auxBuffer() const { return mAuxBuffer; }
-                    void        setMainBuffer(int16_t *buffer) { mMainBuffer = buffer; }
-                    int16_t     *mainBuffer() const { return mMainBuffer; }
-                    int         auxEffectId() const { return mAuxEffectId; }
-
-        // implement FastMixerState::VolumeProvider interface
-            virtual uint32_t    getVolumeLR();
-            virtual status_t    setSyncEvent(const sp<SyncEvent>& event);
-
-        protected:
-            // for numerous
-            friend class PlaybackThread;
-            friend class MixerThread;
-            friend class DirectOutputThread;
-
-                                Track(const Track&);
-                                Track& operator = (const Track&);
-
-            // AudioBufferProvider interface
-            virtual status_t getNextBuffer(AudioBufferProvider::Buffer* buffer, int64_t pts = kInvalidPTS);
-            // releaseBuffer() not overridden
-
-            virtual size_t framesReady() const;
-
-            bool isMuted() const { return mMute; }
-            bool isPausing() const {
-                return mState == PAUSING;
-            }
-            bool isPaused() const {
-                return mState == PAUSED;
-            }
-            bool isResuming() const {
-                return mState == RESUMING;
-            }
-            bool isReady() const;
-            void setPaused() { mState = PAUSED; }
-            void reset();
-
-            bool isOutputTrack() const {
-                return (mStreamType == AUDIO_STREAM_CNT);
-            }
-
-            sp<IMemory> sharedBuffer() const { return mSharedBuffer; }
-
-            bool presentationComplete(size_t framesWritten, size_t audioHalFrames);
-
-        public:
-            void triggerEvents(AudioSystem::sync_event_t type);
-            virtual bool isTimedTrack() const { return false; }
-            bool isFastTrack() const { return (mFlags & IAudioFlinger::TRACK_FAST) != 0; }
-
-        protected:
-
-            // written by Track::mute() called by binder thread(s), without a mutex or barrier.
-            // read by Track::isMuted() called by playback thread, also without a mutex or barrier.
-            // The lack of mutex or barrier is safe because the mute status is only used by itself.
-            bool                mMute;
-
-            // FILLED state is used for suppressing volume ramp at begin of playing
-            enum {FS_INVALID, FS_FILLING, FS_FILLED, FS_ACTIVE};
-            mutable uint8_t     mFillingUpStatus;
-            int8_t              mRetryCount;
-            const sp<IMemory>   mSharedBuffer;
-            bool                mResetDone;
-            const audio_stream_type_t mStreamType;
-            int                 mName;      // track name on the normal mixer,
-                                            // allocated statically at track creation time,
-                                            // and is even allocated (though unused) for fast tracks
-                                            // FIXME don't allocate track name for fast tracks
-            int16_t             *mMainBuffer;
-            int32_t             *mAuxBuffer;
-            int                 mAuxEffectId;
-            bool                mHasVolumeController;
-            size_t              mPresentationCompleteFrames; // number of frames written to the audio HAL
-                                                       // when this track will be fully rendered
-        private:
-            IAudioFlinger::track_flags_t mFlags;
-
-            // The following fields are only for fast tracks, and should be in a subclass
-            int                 mFastIndex; // index within FastMixerState::mFastTracks[];
-                                            // either mFastIndex == -1 if not isFastTrack()
-                                            // or 0 < mFastIndex < FastMixerState::kMaxFast because
-                                            // index 0 is reserved for normal mixer's submix;
-                                            // index is allocated statically at track creation time
-                                            // but the slot is only used if track is active
-            FastTrackUnderruns  mObservedUnderruns; // Most recently observed value of
-                                            // mFastMixerDumpState.mTracks[mFastIndex].mUnderruns
-            uint32_t            mUnderrunCount; // Counter of total number of underruns, never reset
-            volatile float      mCachedVolume;  // combined master volume and stream type volume;
-                                                // 'volatile' means accessed without lock or
-                                                // barrier, but is read/written atomically
-        };  // end of Track
-
-        class TimedTrack : public Track {
-          public:
-            static sp<TimedTrack> create(PlaybackThread *thread,
-                                         const sp<Client>& client,
-                                         audio_stream_type_t streamType,
-                                         uint32_t sampleRate,
-                                         audio_format_t format,
-                                         audio_channel_mask_t channelMask,
-                                         int frameCount,
-                                         const sp<IMemory>& sharedBuffer,
-                                         int sessionId);
-            virtual ~TimedTrack();
-
-            class TimedBuffer {
-              public:
-                TimedBuffer();
-                TimedBuffer(const sp<IMemory>& buffer, int64_t pts);
-                const sp<IMemory>& buffer() const { return mBuffer; }
-                int64_t pts() const { return mPTS; }
-                uint32_t position() const { return mPosition; }
-                void setPosition(uint32_t pos) { mPosition = pos; }
-              private:
-                sp<IMemory> mBuffer;
-                int64_t     mPTS;
-                uint32_t    mPosition;
-            };
-
-            // Mixer facing methods.
-            virtual bool isTimedTrack() const { return true; }
-            virtual size_t framesReady() const;
-
-            // AudioBufferProvider interface
-            virtual status_t getNextBuffer(AudioBufferProvider::Buffer* buffer,
-                                           int64_t pts);
-            virtual void releaseBuffer(AudioBufferProvider::Buffer* buffer);
-
-            // Client/App facing methods.
-            status_t    allocateTimedBuffer(size_t size,
-                                            sp<IMemory>* buffer);
-            status_t    queueTimedBuffer(const sp<IMemory>& buffer,
-                                         int64_t pts);
-            status_t    setMediaTimeTransform(const LinearTransform& xform,
-                                              TimedAudioTrack::TargetTimeline target);
-
-          private:
-            TimedTrack(PlaybackThread *thread,
-                       const sp<Client>& client,
-                       audio_stream_type_t streamType,
-                       uint32_t sampleRate,
-                       audio_format_t format,
-                       audio_channel_mask_t channelMask,
-                       int frameCount,
-                       const sp<IMemory>& sharedBuffer,
-                       int sessionId);
-
-            void timedYieldSamples_l(AudioBufferProvider::Buffer* buffer);
-            void timedYieldSilence_l(uint32_t numFrames,
-                                     AudioBufferProvider::Buffer* buffer);
-            void trimTimedBufferQueue_l();
-            void trimTimedBufferQueueHead_l(const char* logTag);
-            void updateFramesPendingAfterTrim_l(const TimedBuffer& buf,
-                                                const char* logTag);
-
-            uint64_t            mLocalTimeFreq;
-            LinearTransform     mLocalTimeToSampleTransform;
-            LinearTransform     mMediaTimeToSampleTransform;
-            sp<MemoryDealer>    mTimedMemoryDealer;
-
-            Vector<TimedBuffer> mTimedBufferQueue;
-            bool                mQueueHeadInFlight;
-            bool                mTrimQueueHeadOnRelease;
-            uint32_t            mFramesPendingInQueue;
-
-            uint8_t*            mTimedSilenceBuffer;
-            uint32_t            mTimedSilenceBufferSize;
-            mutable Mutex       mTimedBufferQueueLock;
-            bool                mTimedAudioOutputOnTime;
-            CCHelper            mCCHelper;
-
-            Mutex               mMediaTimeTransformLock;
-            LinearTransform     mMediaTimeTransform;
-            bool                mMediaTimeTransformValid;
-            TimedAudioTrack::TargetTimeline mMediaTimeTransformTarget;
-        };
-
-
-        // playback track
-        class OutputTrack : public Track {
-        public:
-
-            class Buffer: public AudioBufferProvider::Buffer {
-            public:
-                int16_t *mBuffer;
-            };
-
-                                OutputTrack(PlaybackThread *thread,
-                                        DuplicatingThread *sourceThread,
-                                        uint32_t sampleRate,
-                                        audio_format_t format,
-                                        audio_channel_mask_t channelMask,
-                                        int frameCount);
-            virtual             ~OutputTrack();
-
-            virtual status_t    start(AudioSystem::sync_event_t event = AudioSystem::SYNC_EVENT_NONE,
-                                     int triggerSession = 0);
-            virtual void        stop();
-                    bool        write(int16_t* data, uint32_t frames);
-                    bool        bufferQueueEmpty() const { return mBufferQueue.size() == 0; }
-                    bool        isActive() const { return mActive; }
-            const wp<ThreadBase>& thread() const { return mThread; }
-
-        private:
-
-            enum {
-                NO_MORE_BUFFERS = 0x80000001,   // same in AudioTrack.h, ok to be different value
-            };
-
-            status_t            obtainBuffer(AudioBufferProvider::Buffer* buffer, uint32_t waitTimeMs);
-            void                clearBufferQueue();
-
-            // Maximum number of pending buffers allocated by OutputTrack::write()
-            static const uint8_t kMaxOverFlowBuffers = 10;
-
-            Vector < Buffer* >          mBufferQueue;
-            AudioBufferProvider::Buffer mOutBuffer;
-            bool                        mActive;
-            DuplicatingThread* const mSourceThread; // for waitTimeMs() in write()
-        };  // end of OutputTrack
-
-        PlaybackThread (const sp<AudioFlinger>& audioFlinger, AudioStreamOut* output,
-                        audio_io_handle_t id, audio_devices_t device, type_t type);
-        virtual             ~PlaybackThread();
-
-                    void        dump(int fd, const Vector<String16>& args);
-
-        // Thread virtuals
-        virtual     status_t    readyToRun();
-        virtual     bool        threadLoop();
-
-        // RefBase
-        virtual     void        onFirstRef();
-
-protected:
-        // Code snippets that were lifted up out of threadLoop()
-        virtual     void        threadLoop_mix() = 0;
-        virtual     void        threadLoop_sleepTime() = 0;
-        virtual     void        threadLoop_write();
-        virtual     void        threadLoop_standby();
-        virtual     void        threadLoop_removeTracks(const Vector< sp<Track> >& tracksToRemove);
-
-                    // prepareTracks_l reads and writes mActiveTracks, and returns
-                    // the pending set of tracks to remove via Vector 'tracksToRemove'.  The caller
-                    // is responsible for clearing or destroying this Vector later on, when it
-                    // is safe to do so. That will drop the final ref count and destroy the tracks.
-        virtual     mixer_state prepareTracks_l(Vector< sp<Track> > *tracksToRemove) = 0;
-
-        // ThreadBase virtuals
-        virtual     void        preExit();
-
-public:
-
-        virtual     status_t    initCheck() const { return (mOutput == NULL) ? NO_INIT : NO_ERROR; }
-
-                    // return estimated latency in milliseconds, as reported by HAL
-                    uint32_t    latency() const;
-                    // same, but lock must already be held
-                    uint32_t    latency_l() const;
-
-                    void        setMasterVolume(float value);
-                    void        setMasterMute(bool muted);
-
-                    void        setStreamVolume(audio_stream_type_t stream, float value);
-                    void        setStreamMute(audio_stream_type_t stream, bool muted);
-
-                    float       streamVolume(audio_stream_type_t stream) const;
-
-                    sp<Track>   createTrack_l(
-                                    const sp<AudioFlinger::Client>& client,
-                                    audio_stream_type_t streamType,
-                                    uint32_t sampleRate,
-                                    audio_format_t format,
-                                    audio_channel_mask_t channelMask,
-                                    int frameCount,
-                                    const sp<IMemory>& sharedBuffer,
-                                    int sessionId,
-                                    IAudioFlinger::track_flags_t flags,
-                                    pid_t tid,
-                                    status_t *status);
-
-                    AudioStreamOut* getOutput() const;
-                    AudioStreamOut* clearOutput();
-                    virtual audio_stream_t* stream() const;
-
-                    // a very large number of suspend() will eventually wraparound, but unlikely
-                    void        suspend() { (void) android_atomic_inc(&mSuspended); }
-                    void        restore()
-                                    {
-                                        // if restore() is done without suspend(), get back into
-                                        // range so that the next suspend() will operate correctly
-                                        if (android_atomic_dec(&mSuspended) <= 0) {
-                                            android_atomic_release_store(0, &mSuspended);
-                                        }
-                                    }
-                    bool        isSuspended() const
-                                    { return android_atomic_acquire_load(&mSuspended) > 0; }
-
-        virtual     String8     getParameters(const String8& keys);
-        virtual     void        audioConfigChanged_l(int event, int param = 0);
-                    status_t    getRenderPosition(uint32_t *halFrames, uint32_t *dspFrames);
-                    int16_t     *mixBuffer() const { return mMixBuffer; };
-
-        virtual     void detachAuxEffect_l(int effectId);
-                    status_t attachAuxEffect(const sp<AudioFlinger::PlaybackThread::Track> track,
-                            int EffectId);
-                    status_t attachAuxEffect_l(const sp<AudioFlinger::PlaybackThread::Track> track,
-                            int EffectId);
-
-                    virtual status_t addEffectChain_l(const sp<EffectChain>& chain);
-                    virtual size_t removeEffectChain_l(const sp<EffectChain>& chain);
-                    virtual uint32_t hasAudioSession(int sessionId) const;
-                    virtual uint32_t getStrategyForSession_l(int sessionId);
-
-
-                    virtual status_t setSyncEvent(const sp<SyncEvent>& event);
-                    virtual bool     isValidSyncEvent(const sp<SyncEvent>& event) const;
-                            void     invalidateTracks(audio_stream_type_t streamType);
-
-
-    protected:
-        int16_t*                        mMixBuffer;
-
-        // suspend count, > 0 means suspended.  While suspended, the thread continues to pull from
-        // tracks and mix, but doesn't write to HAL.  A2DP and SCO HAL implementations can't handle
-        // concurrent use of both of them, so Audio Policy Service suspends one of the threads to
-        // workaround that restriction.
-        // 'volatile' means accessed via atomic operations and no lock.
-        volatile int32_t                mSuspended;
-
-        int                             mBytesWritten;
-    private:
-        // mMasterMute is in both PlaybackThread and in AudioFlinger.  When a
-        // PlaybackThread needs to find out if master-muted, it checks it's local
-        // copy rather than the one in AudioFlinger.  This optimization saves a lock.
-        bool                            mMasterMute;
-                    void        setMasterMute_l(bool muted) { mMasterMute = muted; }
-    protected:
-        SortedVector< wp<Track> >       mActiveTracks;  // FIXME check if this could be sp<>
-
-        // Allocate a track name for a given channel mask.
-        //   Returns name >= 0 if successful, -1 on failure.
-        virtual int             getTrackName_l(audio_channel_mask_t channelMask, int sessionId) = 0;
-        virtual void            deleteTrackName_l(int name) = 0;
-
-        // Time to sleep between cycles when:
-        virtual uint32_t        activeSleepTimeUs() const;      // mixer state MIXER_TRACKS_ENABLED
-        virtual uint32_t        idleSleepTimeUs() const = 0;    // mixer state MIXER_IDLE
-        virtual uint32_t        suspendSleepTimeUs() const = 0; // audio policy manager suspended us
-        // No sleep when mixer state == MIXER_TRACKS_READY; relies on audio HAL stream->write()
-        // No sleep in standby mode; waits on a condition
-
-        // Code snippets that are temporarily lifted up out of threadLoop() until the merge
-                    void        checkSilentMode_l();
-
-        // Non-trivial for DUPLICATING only
-        virtual     void        saveOutputTracks() { }
-        virtual     void        clearOutputTracks() { }
-
-        // Cache various calculated values, at threadLoop() entry and after a parameter change
-        virtual     void        cacheParameters_l();
-
-        virtual     uint32_t    correctLatency(uint32_t latency) const;
-
-    private:
-
-        friend class AudioFlinger;      // for numerous
-
-        PlaybackThread(const Client&);
-        PlaybackThread& operator = (const PlaybackThread&);
-
-        status_t    addTrack_l(const sp<Track>& track);
-        void        destroyTrack_l(const sp<Track>& track);
-        void        removeTrack_l(const sp<Track>& track);
-
-        void        readOutputParameters();
-
-        virtual void dumpInternals(int fd, const Vector<String16>& args);
-        void        dumpTracks(int fd, const Vector<String16>& args);
-
-        SortedVector< sp<Track> >       mTracks;
-        // mStreamTypes[] uses 1 additional stream type internally for the OutputTrack used by DuplicatingThread
-        stream_type_t                   mStreamTypes[AUDIO_STREAM_CNT + 1];
-        AudioStreamOut                  *mOutput;
-
-        float                           mMasterVolume;
-        nsecs_t                         mLastWriteTime;
-        int                             mNumWrites;
-        int                             mNumDelayedWrites;
-        bool                            mInWrite;
-
-        // FIXME rename these former local variables of threadLoop to standard "m" names
-        nsecs_t                         standbyTime;
-        size_t                          mixBufferSize;
-
-        // cached copies of activeSleepTimeUs() and idleSleepTimeUs() made by cacheParameters_l()
-        uint32_t                        activeSleepTime;
-        uint32_t                        idleSleepTime;
-
-        uint32_t                        sleepTime;
-
-        // mixer status returned by prepareTracks_l()
-        mixer_state                     mMixerStatus; // current cycle
-                                                      // previous cycle when in prepareTracks_l()
-        mixer_state                     mMixerStatusIgnoringFastTracks;
-                                                      // FIXME or a separate ready state per track
-
-        // FIXME move these declarations into the specific sub-class that needs them
-        // MIXER only
-        uint32_t                        sleepTimeShift;
-
-        // same as AudioFlinger::mStandbyTimeInNsecs except for DIRECT which uses a shorter value
-        nsecs_t                         standbyDelay;
-
-        // MIXER only
-        nsecs_t                         maxPeriod;
-
-        // DUPLICATING only
-        uint32_t                        writeFrames;
-
-    private:
-        // The HAL output sink is treated as non-blocking, but current implementation is blocking
-        sp<NBAIO_Sink>          mOutputSink;
-        // If a fast mixer is present, the blocking pipe sink, otherwise clear
-        sp<NBAIO_Sink>          mPipeSink;
-        // The current sink for the normal mixer to write it's (sub)mix, mOutputSink or mPipeSink
-        sp<NBAIO_Sink>          mNormalSink;
-        // For dumpsys
-        sp<NBAIO_Sink>          mTeeSink;
-        sp<NBAIO_Source>        mTeeSource;
-        uint32_t                mScreenState;   // cached copy of gScreenState
-    public:
-        virtual     bool        hasFastMixer() const = 0;
-        virtual     FastTrackUnderruns getFastTrackUnderruns(size_t fastIndex) const
-                                    { FastTrackUnderruns dummy; return dummy; }
-
-    protected:
-                    // accessed by both binder threads and within threadLoop(), lock on mutex needed
-                    unsigned    mFastTrackAvailMask;    // bit i set if fast track [i] is available
-
-    };
-
-    class MixerThread : public PlaybackThread {
-    public:
-        MixerThread (const sp<AudioFlinger>& audioFlinger,
-                     AudioStreamOut* output,
-                     audio_io_handle_t id,
-                     audio_devices_t device,
-                     type_t type = MIXER);
-        virtual             ~MixerThread();
-
-        // Thread virtuals
-
-        virtual     bool        checkForNewParameters_l();
-        virtual     void        dumpInternals(int fd, const Vector<String16>& args);
-
-    protected:
-        virtual     mixer_state prepareTracks_l(Vector< sp<Track> > *tracksToRemove);
-        virtual     int         getTrackName_l(audio_channel_mask_t channelMask, int sessionId);
-        virtual     void        deleteTrackName_l(int name);
-        virtual     uint32_t    idleSleepTimeUs() const;
-        virtual     uint32_t    suspendSleepTimeUs() const;
-        virtual     void        cacheParameters_l();
-
-        // threadLoop snippets
-        virtual     void        threadLoop_write();
-        virtual     void        threadLoop_standby();
-        virtual     void        threadLoop_mix();
-        virtual     void        threadLoop_sleepTime();
-        virtual     void        threadLoop_removeTracks(const Vector< sp<Track> >& tracksToRemove);
-        virtual     uint32_t    correctLatency(uint32_t latency) const;
-
-                    AudioMixer* mAudioMixer;    // normal mixer
-    private:
-                    // one-time initialization, no locks required
-                    FastMixer*  mFastMixer;         // non-NULL if there is also a fast mixer
-                    sp<AudioWatchdog> mAudioWatchdog; // non-0 if there is an audio watchdog thread
-
-                    // contents are not guaranteed to be consistent, no locks required
-                    FastMixerDumpState mFastMixerDumpState;
-#ifdef STATE_QUEUE_DUMP
-                    StateQueueObserverDump mStateQueueObserverDump;
-                    StateQueueMutatorDump  mStateQueueMutatorDump;
-#endif
-                    AudioWatchdogDump mAudioWatchdogDump;
-
-                    // accessible only within the threadLoop(), no locks required
-                    //          mFastMixer->sq()    // for mutating and pushing state
-                    int32_t     mFastMixerFutex;    // for cold idle
-
-    public:
-        virtual     bool        hasFastMixer() const { return mFastMixer != NULL; }
-        virtual     FastTrackUnderruns getFastTrackUnderruns(size_t fastIndex) const {
-                                  ALOG_ASSERT(fastIndex < FastMixerState::kMaxFastTracks);
-                                  return mFastMixerDumpState.mTracks[fastIndex].mUnderruns;
-                                }
-    };
-
-    class DirectOutputThread : public PlaybackThread {
-    public:
-
-        DirectOutputThread (const sp<AudioFlinger>& audioFlinger, AudioStreamOut* output,
-                            audio_io_handle_t id, audio_devices_t device);
-        virtual                 ~DirectOutputThread();
-
-        // Thread virtuals
-
-        virtual     bool        checkForNewParameters_l();
-
-    protected:
-        virtual     int         getTrackName_l(audio_channel_mask_t channelMask, int sessionId);
-        virtual     void        deleteTrackName_l(int name);
-        virtual     uint32_t    activeSleepTimeUs() const;
-        virtual     uint32_t    idleSleepTimeUs() const;
-        virtual     uint32_t    suspendSleepTimeUs() const;
-        virtual     void        cacheParameters_l();
-
-        // threadLoop snippets
-        virtual     mixer_state prepareTracks_l(Vector< sp<Track> > *tracksToRemove);
-        virtual     void        threadLoop_mix();
-        virtual     void        threadLoop_sleepTime();
-
-        // volumes last sent to audio HAL with stream->set_volume()
-        float mLeftVolFloat;
-        float mRightVolFloat;
-
-private:
-        // prepareTracks_l() tells threadLoop_mix() the name of the single active track
-        sp<Track>               mActiveTrack;
-    public:
-        virtual     bool        hasFastMixer() const { return false; }
-    };
-
-    class DuplicatingThread : public MixerThread {
-    public:
-        DuplicatingThread (const sp<AudioFlinger>& audioFlinger, MixerThread* mainThread,
-                           audio_io_handle_t id);
-        virtual                 ~DuplicatingThread();
-
-        // Thread virtuals
-                    void        addOutputTrack(MixerThread* thread);
-                    void        removeOutputTrack(MixerThread* thread);
-                    uint32_t    waitTimeMs() const { return mWaitTimeMs; }
-    protected:
-        virtual     uint32_t    activeSleepTimeUs() const;
-
-    private:
-                    bool        outputsReady(const SortedVector< sp<OutputTrack> > &outputTracks);
-    protected:
-        // threadLoop snippets
-        virtual     void        threadLoop_mix();
-        virtual     void        threadLoop_sleepTime();
-        virtual     void        threadLoop_write();
-        virtual     void        threadLoop_standby();
-        virtual     void        cacheParameters_l();
-
-    private:
-        // called from threadLoop, addOutputTrack, removeOutputTrack
-        virtual     void        updateWaitTime_l();
-    protected:
-        virtual     void        saveOutputTracks();
-        virtual     void        clearOutputTracks();
-    private:
-
-                    uint32_t    mWaitTimeMs;
-        SortedVector < sp<OutputTrack> >  outputTracks;
-        SortedVector < sp<OutputTrack> >  mOutputTracks;
-    public:
-        virtual     bool        hasFastMixer() const { return false; }
-    };
-
-              PlaybackThread *checkPlaybackThread_l(audio_io_handle_t output) const;
-              MixerThread *checkMixerThread_l(audio_io_handle_t output) const;
-              RecordThread *checkRecordThread_l(audio_io_handle_t input) const;
-              // no range check, AudioFlinger::mLock held
-              bool streamMute_l(audio_stream_type_t stream) const
-                                { return mStreamTypes[stream].mute; }
-              // no range check, doesn't check per-thread stream volume, AudioFlinger::mLock held
-              float streamVolume_l(audio_stream_type_t stream) const
-                                { return mStreamTypes[stream].volume; }
-              void audioConfigChanged_l(int event, audio_io_handle_t ioHandle, const void *param2);
-
-              // allocate an audio_io_handle_t, session ID, or effect ID
-              uint32_t nextUniqueId();
-
-              status_t moveEffectChain_l(int sessionId,
-                                     PlaybackThread *srcThread,
-                                     PlaybackThread *dstThread,
-                                     bool reRegister);
-              // return thread associated with primary hardware device, or NULL
-              PlaybackThread *primaryPlaybackThread_l() const;
-              audio_devices_t primaryOutputDevice_l() const;
-
-              sp<PlaybackThread> getEffectThread_l(int sessionId, int EffectId);
+#include "Effects.h"
 
     // server side of the client's IAudioTrack
 #ifdef QCOM_HARDWARE
@@ -1495,7 +883,7 @@ private:
         void allocateBufPool();
         void deallocateBufPool();
 
-        //******Effects*************
+        // ******Effects*************
         static void *EffectsThreadWrapper(void *me);
         void EffectsThreadEntry();
         // make sure the Effects thread also exited
@@ -1567,7 +955,6 @@ private:
         virtual status_t    start();
         virtual void        stop();
         virtual void        flush();
-        virtual void        mute(bool);
         virtual void        pause();
         virtual status_t    attachAuxEffect(int effectId);
         virtual status_t    allocateTimedBuffer(size_t size,
@@ -2061,19 +1448,30 @@ mutable Mutex               mLock;      // mutex for process, commands and handl
         void setLPAFlag(bool flag) {mIsForLPATrack = flag;}
 #endif
 
-    protected:
-        friend class AudioFlinger;  // for mThread, mEffects
-        EffectChain(const EffectChain&);
-        EffectChain& operator =(const EffectChain&);
+              PlaybackThread *checkPlaybackThread_l(audio_io_handle_t output) const;
+              MixerThread *checkMixerThread_l(audio_io_handle_t output) const;
+              RecordThread *checkRecordThread_l(audio_io_handle_t input) const;
+              // no range check, AudioFlinger::mLock held
+              bool streamMute_l(audio_stream_type_t stream) const
+                                { return mStreamTypes[stream].mute; }
+              // no range check, doesn't check per-thread stream volume, AudioFlinger::mLock held
+              float streamVolume_l(audio_stream_type_t stream) const
+                                { return mStreamTypes[stream].volume; }
+              void audioConfigChanged_l(int event, audio_io_handle_t ioHandle, const void *param2);
 
-        class SuspendedEffectDesc : public RefBase {
-        public:
-            SuspendedEffectDesc() : mRefCount(0) {}
+              // allocate an audio_io_handle_t, session ID, or effect ID
+              uint32_t nextUniqueId();
 
-            int mRefCount;
-            effect_uuid_t mType;
-            wp<EffectModule> mEffect;
-        };
+              status_t moveEffectChain_l(int sessionId,
+                                     PlaybackThread *srcThread,
+                                     PlaybackThread *dstThread,
+                                     bool reRegister);
+              // return thread associated with primary hardware device, or NULL
+              PlaybackThread *primaryPlaybackThread_l() const;
+              audio_devices_t primaryOutputDevice_l() const;
+
+              sp<PlaybackThread> getEffectThread_l(int sessionId, int EffectId);
+
 
         // get a list of effect modules to suspend when an effect of the type
         // passed is enabled.
@@ -2117,6 +1515,8 @@ mutable Mutex               mLock;      // mutex for process, commands and handl
         // Updated by updateSuspendedSessions_l() only.
         KeyedVector< int, sp<SuspendedEffectDesc> > mSuspendedEffects;
     };
+                void        removeClient_l(pid_t pid);
+                void        removeNotificationClient(pid_t pid);
 
     class AudioHwDevice {
     public:
@@ -2283,8 +1683,40 @@ private:
     // for use from destructor
     status_t    closeOutput_nonvirtual(audio_io_handle_t output);
     status_t    closeInput_nonvirtual(audio_io_handle_t input);
+
+// do not use #ifdef here, since AudioFlinger.h is included by more than one module
+//#ifdef TEE_SINK
+    // all record threads serially share a common tee sink, which is re-created on format change
+    sp<NBAIO_Sink>   mRecordTeeSink;
+    sp<NBAIO_Source> mRecordTeeSource;
+//#endif
+
+public:
+
+#ifdef TEE_SINK
+    // tee sink, if enabled by property, allows dumpsys to write most recent audio to .wav file
+    static void dumpTee(int fd, const sp<NBAIO_Source>& source, audio_io_handle_t id = 0);
+
+    // whether tee sink is enabled by property
+    static bool mTeeSinkInputEnabled;
+    static bool mTeeSinkOutputEnabled;
+    static bool mTeeSinkTrackEnabled;
+
+    // runtime configured size of each tee sink pipe, in frames
+    static size_t mTeeSinkInputFrames;
+    static size_t mTeeSinkOutputFrames;
+    static size_t mTeeSinkTrackFrames;
+
+    // compile-time default size of tee sink pipes, in frames
+    // 0x200000 stereo 16-bit PCM frames = 47.5 seconds at 44.1 kHz, 8 megabytes
+    static const size_t kTeeSinkInputFramesDefault = 0x200000;
+    static const size_t kTeeSinkOutputFramesDefault = 0x200000;
+    static const size_t kTeeSinkTrackFramesDefault = 0x1000;
+#endif
+
 };
 
+#undef INCLUDING_FROM_AUDIOFLINGER_H
 
 // ----------------------------------------------------------------------------
 
